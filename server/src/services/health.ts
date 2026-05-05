@@ -63,6 +63,20 @@ export async function checkAllKeys(): Promise<void> {
   console.log(`[Health] Check complete.`);
 }
 
+export async function checkPlatformKeys(platform: Platform): Promise<number> {
+  const db = getDb();
+  const keys = db.prepare('SELECT id FROM api_keys WHERE enabled = 1 AND platform = ?').all(platform) as { id: number }[];
+
+  console.log(`[Health] Checking ${keys.length} ${platform} key(s)...`);
+
+  for (const key of keys) {
+    await checkKeyHealth(key.id);
+  }
+
+  console.log(`[Health] ${platform} check complete.`);
+  return keys.length;
+}
+
 let intervalId: ReturnType<typeof setInterval> | null = null;
 
 export function startHealthChecker(): void {

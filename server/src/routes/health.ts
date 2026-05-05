@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { getDb } from '../db/index.js';
-import { checkKeyHealth, checkAllKeys } from '../services/health.js';
+import { checkKeyHealth, checkAllKeys, checkPlatformKeys } from '../services/health.js';
 import { hasProvider } from '../providers/index.js';
+import type { Platform } from '@freellmapi/shared/types.js';
 
 export const healthRouter = Router();
 
@@ -64,6 +65,18 @@ healthRouter.post('/check/:keyId', async (req: Request, res: Response) => {
 
   const status = await checkKeyHealth(keyId);
   res.json({ keyId, status });
+});
+
+// Check all enabled keys for one provider/platform
+healthRouter.post('/check-platform/:platform', async (req: Request, res: Response) => {
+  const platform = req.params.platform as Platform;
+  if (!hasProvider(platform)) {
+    res.status(400).json({ error: { message: 'Invalid platform' } });
+    return;
+  }
+
+  const checked = await checkPlatformKeys(platform);
+  res.json({ success: true, platform, checked });
 });
 
 // Check all keys

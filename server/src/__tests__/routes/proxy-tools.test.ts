@@ -112,6 +112,44 @@ describe('Proxy tool-calling support', () => {
     expect(body.choices[0].message.tool_calls[0].function.name).toBe('get_weather');
   });
 
+  it('treats model auto as fallback-chain routing', async () => {
+    const origFetch = global.fetch;
+    let providerBody: any = null;
+
+    vi.spyOn(global, 'fetch').mockImplementation(async (url, init) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('api.groq.com/openai/v1/chat/completions')) {
+        providerBody = JSON.parse((init as any).body);
+        return {
+          ok: true,
+          json: () => Promise.resolve({
+            id: 'chatcmpl-auto',
+            object: 'chat.completion',
+            created: 123,
+            model: providerBody.model,
+            choices: [{
+              index: 0,
+              message: { role: 'assistant', content: 'Auto routed.' },
+              finish_reason: 'stop',
+            }],
+            usage: { prompt_tokens: 4, completion_tokens: 3, total_tokens: 7 },
+          }),
+        } as any;
+      }
+      return origFetch(url, init);
+    });
+
+    const { status, body } = await request(app, 'POST', '/v1/chat/completions', {
+      model: 'auto',
+      messages: [{ role: 'user', content: 'hello' }],
+    });
+
+    expect(status).toBe(200);
+    expect(providerBody.model).toBeTruthy();
+    expect(providerBody.model).not.toBe('auto');
+    expect(body._routed_via.model).toBe(providerBody.model);
+  });
+
   it('accepts assistant tool_calls + tool messages in follow-up turns', async () => {
     const origFetch = global.fetch;
     let providerBody: any = null;

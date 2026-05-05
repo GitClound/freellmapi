@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { keysRouter } from './routes/keys.js';
 import { modelsRouter } from './routes/models.js';
 import { proxyRouter } from './routes/proxy.js';
+import { anthropicRouter } from './routes/anthropic.js';
 import { fallbackRouter } from './routes/fallback.js';
 import { analyticsRouter } from './routes/analytics.js';
 import { healthRouter } from './routes/health.js';
@@ -35,10 +36,22 @@ export function createApp() {
   app.use('/api/health', healthRouter);
   app.use('/api/settings', settingsRouter);
 
-  // OpenAI-compatible proxy
+  // Anthropic-compatible + OpenAI-compatible proxy
+  app.use('/v1', anthropicRouter);
   app.use('/v1', proxyRouter);
 
   // Health check
+  app.head('/', (_req, res) => {
+    res.status(200).end();
+  });
+
+  app.get('/', (_req, res, next) => {
+    const clientIndex = path.resolve(__dirname, '../../client/dist/index.html');
+    res.sendFile(clientIndex, (err) => {
+      if (err) res.json({ status: 'ok', timestamp: new Date().toISOString() });
+    });
+  });
+
   app.get('/api/ping', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });

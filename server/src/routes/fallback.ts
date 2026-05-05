@@ -3,6 +3,11 @@ import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../db/index.js';
 import { getAllPenalties } from '../services/router.js';
+import {
+  getLastModelCatalogRefresh,
+  isModelCatalogRefreshRunning,
+  refreshFreeModelCatalog,
+} from '../services/model-refresh.js';
 
 export const fallbackRouter = Router();
 
@@ -81,6 +86,22 @@ fallbackRouter.put('/', (req: Request, res: Response) => {
   updateAll();
 
   res.json({ success: true });
+});
+
+// Manual model catalog refresh + status for the scheduled refresher.
+fallbackRouter.get('/refresh/status', (_req: Request, res: Response) => {
+  res.json({
+    running: isModelCatalogRefreshRunning(),
+    lastRun: getLastModelCatalogRefresh(),
+  });
+});
+
+fallbackRouter.post('/refresh', async (_req: Request, res: Response) => {
+  const summary = await refreshFreeModelCatalog('manual');
+  res.json({
+    running: isModelCatalogRefreshRunning(),
+    lastRun: summary,
+  });
 });
 
 // Sort presets

@@ -4,8 +4,11 @@ import { GoogleProvider } from './google.js';
 import { OpenAICompatProvider } from './openai-compat.js';
 import { CohereProvider } from './cohere.js';
 import { CloudflareProvider } from './cloudflare.js';
+import { getDb } from '../db/index.js';
 
 const providers = new Map<Platform, BaseProvider>();
+const customProviderCache = new Map<string, { name: string; baseUrl: string; provider: BaseProvider }>();
+const localProxyOrigin = `http://localhost:${process.env.PORT ?? 13002}`;
 
 function register(provider: BaseProvider) {
   providers.set(provider.platform, provider);
@@ -55,7 +58,7 @@ register(new OpenAICompatProvider({
   name: 'OpenRouter',
   baseUrl: 'https://openrouter.ai/api/v1',
   extraHeaders: {
-    'HTTP-Referer': 'http://localhost:3001',
+    'HTTP-Referer': localProxyOrigin,
     'X-Title': 'FreeLLMAPI',
   },
 }));
@@ -86,14 +89,44 @@ register(new OpenAICompatProvider({
 // HF tool-call format issues; Moonshot moved to paid; MiniMax superseded by
 // the OpenRouter route (openrouter/minimax/minimax-m2.5:free).
 
-export function getProvider(platform: Platform): BaseProvider | undefined {
-  return providers.get(platform);
+function getCustomProvider(platform: string): BaseProvider | undefined {
+  if (!platform.startsWith('custom:')) return undefined;
+
+  const row = getDb().prepare(`
+    SELECT name, base_url
+    FROM custom_providers
+    WHERE platform = ?
+  `).get(platform) as { name: string; base_url: string } | undefined;
+
+  if (!row) return undefined;
+
+  const cached = customProviderCache.get(platform);
+  if (cached && cached.name === row.name && cached.baseUrl === row.base_url) {
+    return cached.provider;
+  }
+
+  const provider = new OpenAICompatProvider({
+    platform: platform as Platform,
+    name: row.name,
+    baseUrl: row.base_url,
+    timeoutMs: 30000,
+  });
+  customProviderCache.set(platform, { name: row.name, baseUrl: row.base_url, provider });
+  return provider;
+}
+
+export function getProvider(platform: Platform | string): BaseProvider | undefined {
+  return providers.get(platform as Platform) ?? getCustomProvider(platform);
 }
 
 export function getAllProviders(): BaseProvider[] {
   return Array.from(providers.values());
 }
 
-export function hasProvider(platform: Platform): boolean {
-  return providers.has(platform);
+export function hasProvider(platform: Platform | string): boolean {
+  if (providers.has(platform as Platform)) return true;
+  if (!platform.startsWith('custom:')) return false;
+
+  const row = getDb().prepare('SELECT 1 FROM custom_providers WHERE platform = ?').get(platform);
+  return Boolean(row);
 }

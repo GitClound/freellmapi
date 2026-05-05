@@ -109,11 +109,17 @@ npm run dev
 
 Open http://localhost:5173 (the Vite dev UI), add your provider keys on the **Keys** page, reorder the **Fallback Chain** to taste, and grab your unified API key from the **Keys** page header. That unified key is what you point your OpenAI SDK at.
 
+Free model discovery runs in the background by default. The server refreshes
+OpenRouter `:free` models and any custom OpenAI-compatible providers with saved
+keys every 360 minutes, and the **Fallback Chain** page also has a manual
+refresh button. Set `MODEL_REFRESH_ENABLED=false` or
+`MODEL_REFRESH_INTERVAL_MINUTES=0` in `.env` to disable it.
+
 For a production build:
 
 ```bash
 npm run build
-node server/dist/index.js     # server + dashboard both served on :3001
+node server/dist/index.js     # server + dashboard both served on :13002
 ```
 
 ## Using the API
@@ -126,7 +132,7 @@ Any OpenAI-compatible client works. Examples:
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="http://localhost:3001/v1",
+    base_url="http://localhost:13002/v1",
     api_key="freellmapi-your-unified-key",
 )
 
@@ -141,7 +147,7 @@ print("Routed via:", resp.headers.get("x-routed-via"))
 **curl**
 
 ```bash
-curl http://localhost:3001/v1/chat/completions \
+curl http://localhost:13002/v1/chat/completions \
   -H "Authorization: Bearer freellmapi-your-unified-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -149,6 +155,15 @@ curl http://localhost:3001/v1/chat/completions \
     "messages": [{"role": "user", "content": "hi"}]
   }'
 ```
+
+**CC Switch**
+
+Open the dashboard **Keys** page and use **Import to CC Switch** to add this proxy to:
+
+- **Claude Code** via `ANTHROPIC_BASE_URL=http://127.0.0.1:13002`; Claude Code appends `/v1/messages` itself.
+- **Codex** via a Codex `chat` model provider pointed at `http://127.0.0.1:13002/v1`.
+
+Both imports use your unified `freellmapi-...` key, not upstream provider keys.
 
 **Streaming**
 
@@ -230,7 +245,7 @@ Request volume, success rate, tokens in and out, average latency, and per-provid
 
 ```
 ┌──────────────────┐   Bearer freellmapi-…   ┌─────────────────────────┐
-│  OpenAI SDK /    │ ──────────────────────▶ │  Express proxy (:3001)  │
+│  OpenAI SDK /    │ ──────────────────────▶ │ Express proxy (:13002)  │
 │  curl / any      │ ◀────────────────────── │  /v1/chat/completions   │
 │  OpenAI client   │      streamed tokens    └────────────┬────────────┘
 └──────────────────┘                                      │
@@ -281,7 +296,7 @@ Contributors very welcome! Good first PRs:
 
 ```bash
 npm install
-npm run dev      # server on :3001, dashboard on :5173, both with HMR
+npm run dev      # server on :13002, dashboard on :5173, both with HMR
 npm test         # vitest — 75 tests across providers, routes, router, ratelimit
 ```
 

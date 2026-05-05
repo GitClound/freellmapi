@@ -2,8 +2,10 @@ import { useState, useRef, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiFetch } from '@/lib/api'
 import { Button } from '@/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@/components/ui/select'
 import { PageHeader } from '@/components/page-header'
+import { useI18n } from '@/lib/i18n'
+import type { PlaygroundChatMessage } from '@/lib/playground-state'
 
 interface FallbackEntry {
   modelDbId: number
@@ -16,21 +18,27 @@ interface FallbackEntry {
   keyCount: number
 }
 
-interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-  meta?: {
-    platform?: string
-    model?: string
-    latency?: number
-    fallbackAttempts?: number
-  }
+interface PlaygroundPageProps {
+  messages: PlaygroundChatMessage[]
+  onMessagesChange: (messages: PlaygroundChatMessage[]) => void
+  loading: boolean
+  onLoadingChange: (loading: boolean) => void
 }
 
-export default function PlaygroundPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+let activeRequestId = 0
+
+function getErrorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err)
+}
+
+export default function PlaygroundPage({
+  messages,
+  onMessagesChange,
+  loading,
+  onLoadingChange,
+}: PlaygroundPageProps) {
+  const { t } = useI18n()
   const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
   const [selectedModel, setSelectedModel] = useState<string>('auto')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -55,18 +63,23 @@ export default function PlaygroundPage() {
     const text = input.trim()
     if (!text || loading) return
 
-    const userMsg: ChatMessage = { role: 'user', content: text }
+    const userMsg: PlaygroundChatMessage = { role: 'user', content: text }
     const newMessages = [...messages, userMsg]
-    setMessages(newMessages)
+    const requestId = activeRequestId + 1
+    activeRequestId = requestId
+    onMessagesChange(newMessages)
     setInput('')
-    setLoading(true)
+    onLoadingChange(true)
     inputRef.current?.focus()
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' }
       if (keyData?.apiKey) headers['Authorization'] = `Bearer ${keyData.apiKey}`
 
-      const body: any = {
+      const body: {
+        messages: { role: PlaygroundChatMessage['role']; content: string }[]
+        model?: string
+      } = {
         messages: newMessages.map(m => ({ role: m.role, content: m.content })),
       }
       if (selectedModel !== 'auto') body.model = selectedModel
@@ -85,9 +98,10 @@ export default function PlaygroundPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: { message: `HTTP ${res.status}` } }))
-        setMessages([...newMessages, {
+        if (requestId !== activeRequestId) return
+        onMessagesChange([...newMessages, {
           role: 'assistant',
-          content: `Error: ${err.error?.message ?? 'Unknown error'}`,
+          content: `${t('common.error')}: ${err.error?.message ?? t('common.unknownError')}`,
         }])
         return
       }
@@ -99,7 +113,8 @@ export default function PlaygroundPage() {
         model: routedVia.split('/').slice(1).join('/'),
       } : undefined)
 
-      setMessages([...newMessages, {
+      if (requestId !== activeRequestId) return
+      onMessagesChange([...newMessages, {
         role: 'assistant',
         content,
         meta: {
@@ -109,14 +124,17 @@ export default function PlaygroundPage() {
           fallbackAttempts: fallbackAttempts ? parseInt(fallbackAttempts) : undefined,
         },
       }])
-    } catch (err: any) {
-      setMessages([...newMessages, {
+    } catch (err: unknown) {
+      if (requestId !== activeRequestId) return
+      onMessagesChange([...newMessages, {
         role: 'assistant',
-        content: `Error: ${err.message}`,
+        content: `${t('common.error')}: ${getErrorMessage(err)}`,
       }])
     } finally {
-      setLoading(false)
-      setTimeout(() => inputRef.current?.focus(), 0)
+      if (requestId === activeRequestId) {
+        onLoadingChange(false)
+        setTimeout(() => inputRef.current?.focus(), 0)
+      }
     }
   }
 
@@ -128,27 +146,29 @@ export default function PlaygroundPage() {
   }
 
   const handleClear = () => {
-    setMessages([])
+    activeRequestId += 1
+    onLoadingChange(false)
+    onMessagesChange([])
     inputRef.current?.focus()
   }
 
   const activeModelLabel = selectedModel === 'auto'
-    ? 'Auto (fallback chain)'
+    ? t('playground.autoModel')
     : availableModels.find(m => m.modelId === selectedModel)?.displayName ?? selectedModel
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)]">
       <PageHeader
-        title="Playground"
-        description="Send a chat completion through the router and see which provider serves it."
+        title={t('playground.title')}
+        description={t('playground.description')}
         actions={
           <>
             <Select value={selectedModel} onValueChange={(v) => setSelectedModel(v ?? 'auto')}>
               <SelectTrigger className="w-[260px]">
-                <SelectValue />
+                <span className="truncate">{activeModelLabel}</span>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="auto">Auto (fallback chain)</SelectItem>
+                <SelectItem value="auto">{t('playground.autoModel')}</SelectItem>
                 {availableModels.map(m => (
                   <SelectItem key={m.modelDbId} value={m.modelId}>
                     <span className="flex items-center gap-2">
@@ -161,7 +181,7 @@ export default function PlaygroundPage() {
             </Select>
             {messages.length > 0 && (
               <Button variant="outline" size="sm" onClick={handleClear}>
-                Clear
+                {t('playground.clear')}
               </Button>
             )}
           </>
@@ -173,9 +193,9 @@ export default function PlaygroundPage() {
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-center">
               <div className="space-y-2 max-w-sm">
-                <p className="text-base font-medium">Send a message to get started.</p>
+                <p className="text-base font-medium">{t('playground.emptyTitle')}</p>
                 <p className="text-sm text-muted-foreground">
-                  Using <span className="text-foreground">{activeModelLabel}</span>. Switch models in the selector above.
+                  {t('playground.emptyDescription', { model: activeModelLabel })}
                 </p>
               </div>
             </div>
@@ -197,7 +217,9 @@ export default function PlaygroundPage() {
                         {msg.meta.model && <span className="font-mono">· {msg.meta.model}</span>}
                         {msg.meta.latency != null && <span>· {msg.meta.latency} ms</span>}
                         {msg.meta.fallbackAttempts != null && msg.meta.fallbackAttempts > 0 && (
-                          <span>· {msg.meta.fallbackAttempts} fallback{msg.meta.fallbackAttempts > 1 ? 's' : ''}</span>
+                          <span>
+                            · {msg.meta.fallbackAttempts} {t(msg.meta.fallbackAttempts > 1 ? 'playground.fallbacks' : 'playground.fallback')}
+                          </span>
                         )}
                       </div>
                     )}
@@ -227,7 +249,7 @@ export default function PlaygroundPage() {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type a message… (⏎ to send, ⇧⏎ for newline)"
+              placeholder={t('playground.placeholder')}
               rows={1}
               className="flex-1 resize-none rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring/50 min-h-[40px] max-h-[160px]"
               style={{ height: 'auto', overflow: 'hidden' }}
@@ -238,7 +260,7 @@ export default function PlaygroundPage() {
               }}
             />
             <Button onClick={handleSend} disabled={loading || !input.trim()} size="default">
-              {loading ? 'Sending…' : 'Send'}
+              {loading ? t('playground.sending') : t('playground.send')}
             </Button>
           </div>
         </div>

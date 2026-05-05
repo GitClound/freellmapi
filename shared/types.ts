@@ -1,10 +1,10 @@
 // ---- Platform & Model Types ----
 
-// Active platforms — must match server/src/providers/index.ts and
-// server/src/routes/keys.ts PLATFORMS allowlist.
+// Active built-in platforms — custom OpenAI-compatible providers are stored as
+// `custom:<id>` and registered dynamically from the local database.
 // Hugging Face, Moonshot, and MiniMax direct integrations were dropped
 // in migrateModelsV4 (see server/src/db/index.ts).
-export type Platform =
+export type BuiltInPlatform =
   | 'google'
   | 'groq'
   | 'cerebras'
@@ -16,6 +16,10 @@ export type Platform =
   | 'cohere'
   | 'cloudflare'
   | 'zhipu';
+
+export type CustomPlatform = `custom:${string}`;
+
+export type Platform = BuiltInPlatform | CustomPlatform;
 
 export interface Model {
   id: number;
@@ -39,6 +43,8 @@ export type KeyStatus = 'healthy' | 'rate_limited' | 'invalid' | 'error' | 'unkn
 export interface ApiKey {
   id: number;
   platform: Platform;
+  providerName?: string;
+  providerBaseUrl?: string;
   label: string;
   maskedKey: string;
   status: KeyStatus;
@@ -48,9 +54,22 @@ export interface ApiKey {
 }
 
 export interface ApiKeyCreate {
-  platform: Platform;
+  platform: Platform | 'custom';
   key: string;
   label?: string;
+  customName?: string;
+  baseUrl?: string;
+  modelId?: string;
+  displayName?: string;
+}
+
+export interface ApiKeyReveal {
+  id: number;
+  platform: Platform;
+  providerName?: string;
+  providerBaseUrl?: string;
+  label: string;
+  key: string;
 }
 
 // ---- Fallback Config ----

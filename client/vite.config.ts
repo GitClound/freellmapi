@@ -5,7 +5,8 @@ import path from 'path'
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, path.resolve(__dirname, '..'), '')
-  const serverPort = env.PORT ?? process.env.PORT ?? 3001
+  const serverPort = env.PORT ?? process.env.PORT ?? 13002
+  const proxyTarget = env.VITE_PROXY_TARGET ?? process.env.VITE_PROXY_TARGET ?? `http://127.0.0.1:${serverPort}`
 
   return {
     plugins: [react(), tailwindcss()],
@@ -20,9 +21,11 @@ export default defineConfig(({ mode }) => {
       },
     },
     server: {
+      host: '127.0.0.1',
+      port: 5173,
       proxy: {
-        '/api': `http://localhost:${serverPort}`,
-        '/v1': `http://localhost:${serverPort}`,
+        '/api': proxyTarget,
+        '/v1': proxyTarget,
       },
     },
   }

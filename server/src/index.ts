@@ -2,8 +2,9 @@ import './env.js';
 import { createApp } from './app.js';
 import { initDb } from './db/index.js';
 import { startHealthChecker } from './services/health.js';
+import { startModelCatalogRefresher } from './services/model-refresh.js';
 
-const PORT = process.env.PORT ?? 3001;
+const PORT = process.env.PORT ?? 13002;
 
 async function main() {
   initDb();
@@ -13,6 +14,7 @@ async function main() {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
     console.log(`Proxy endpoint: http://0.0.0.0:${PORT}/v1/chat/completions`);
     startHealthChecker();
+    startModelCatalogRefresher();
   });
 }
 

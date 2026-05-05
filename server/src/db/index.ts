@@ -83,6 +83,14 @@ function createTables(db: Database.Database) {
       last_checked_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS custom_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      base_url TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       platform TEXT NOT NULL,
@@ -108,9 +116,33 @@ function createTables(db: Database.Database) {
       value TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS model_catalog_entries (
+      model_db_id INTEGER PRIMARY KEY REFERENCES models(id) ON DELETE CASCADE,
+      source TEXT NOT NULL,
+      last_seen_at TEXT,
+      missing_since TEXT,
+      disabled_by_refresh INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS model_refresh_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      reason TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      added_models INTEGER NOT NULL DEFAULT 0,
+      updated_models INTEGER NOT NULL DEFAULT 0,
+      disabled_models INTEGER NOT NULL DEFAULT 0,
+      error TEXT,
+      details_json TEXT NOT NULL DEFAULT '[]'
+    );
+
     CREATE INDEX IF NOT EXISTS idx_requests_created_at ON requests(created_at);
     CREATE INDEX IF NOT EXISTS idx_requests_platform ON requests(platform);
     CREATE INDEX IF NOT EXISTS idx_api_keys_platform ON api_keys(platform);
+    CREATE INDEX IF NOT EXISTS idx_custom_providers_platform ON custom_providers(platform);
+    CREATE INDEX IF NOT EXISTS idx_model_catalog_entries_source ON model_catalog_entries(source);
+    CREATE INDEX IF NOT EXISTS idx_model_refresh_runs_started_at ON model_refresh_runs(started_at);
   `);
 }
 

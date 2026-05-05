@@ -5,7 +5,8 @@ import { z } from 'zod';
 import type { ChatMessage } from '@freellmapi/shared/types.js';
 import { routeRequest, recordRateLimitHit, recordSuccess, type RouteResult } from '../services/router.js';
 import { recordRequest, recordTokens, setCooldown } from '../services/ratelimit.js';
-import { getDb, getUnifiedApiKey } from '../db/index.js';
+import { getDb } from '../db/index.js';
+import { requireUnifiedApiKey } from '../lib/auth.js';
 
 export const proxyRouter = Router();
 
@@ -64,14 +65,24 @@ proxyRouter.get('/models', (_req: Request, res: Response) => {
   const models = db.prepare('SELECT platform, model_id, display_name, context_window FROM models WHERE enabled = 1 ORDER BY intelligence_rank').all() as any[];
   res.json({
     object: 'list',
-    data: models.map(m => ({
-      id: m.model_id,
-      object: 'model',
-      created: 0,
-      owned_by: m.platform,
-      name: m.display_name,
-      context_window: m.context_window,
-    })),
+    data: [
+      {
+        id: 'auto',
+        object: 'model',
+        created: 0,
+        owned_by: 'freellmapi',
+        name: 'Auto (fallback chain)',
+        context_window: null,
+      },
+      ...models.map(m => ({
+        id: m.model_id,
+        object: 'model',
+        created: 0,
+        owned_by: m.platform,
+        name: m.display_name,
+        context_window: m.context_window,
+      })),
+    ],
   });
 });
 
@@ -165,23 +176,18 @@ function isRetryableError(err: any): boolean {
     || msg.includes('500') || msg.includes('internal server error');
 }
 
+function isAutoRouteModel(model?: string): boolean {
+  if (!model) return true;
+  const normalized = model.trim().toLowerCase();
+  return normalized === 'auto'
+    || normalized === 'default'
+    || normalized === 'freellmapi-auto';
+}
+
 proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   const start = Date.now();
 
-  // Authenticate with unified API key. Local requests (127.0.0.1) skip the check
-  // since they came from the same machine running the server. Non-local requests
-  // MUST present a valid Bearer token — missing or wrong → 401.
-  const isLocal = req.ip === '127.0.0.1' || req.ip === '::1' || req.ip === '::ffff:127.0.0.1';
-  if (!isLocal) {
-    const token = req.headers.authorization?.replace(/^Bearer\s+/i, '');
-    const unifiedKey = getUnifiedApiKey();
-    if (!token || token !== unifiedKey) {
-      res.status(401).json({
-        error: { message: 'Invalid API key', type: 'authentication_error' },
-      });
-      return;
-    }
-  }
+  if (!requireUnifiedApiKey(req, res)) return;
 
   // Validate request
   const parsed = chatCompletionSchema.safeParse(req.body);
@@ -234,12 +240,11 @@ proxyRouter.post('/chat/completions', async (req: Request, res: Response) => {
   }, 0);
   const estimatedTotal = estimatedInputTokens + (max_tokens ?? 1000);
 
-  // Explicit `model` field pins routing. If the catalog has no enabled row
-  // matching the requested id, return 400 — silently auto-routing to a
-  // different model would be surprising to OpenAI-compatible clients.
-  // Sticky-session is the fallback when no `model` field was sent at all.
+  // Explicit real model ids pin routing. `auto`/`default` are aliases for the
+  // fallback chain, which is what imported Codex configs use.
+  // Sticky-session is the fallback when no concrete model field was sent.
   let preferredModel: number | undefined;
-  if (requestedModel) {
+  if (!isAutoRouteModel(requestedModel)) {
     const db = getDb();
     const enabled = db.prepare('SELECT id FROM models WHERE model_id = ? AND enabled = 1').get(requestedModel) as { id: number } | undefined;
     if (enabled) {
